@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from google.cloud import bigquery
+from google.oauth2 import service_account
 from datetime import datetime, timezone
 
 st.set_page_config(page_title="AirNaoned - Qualité de l'Air", layout="wide")
@@ -183,7 +184,14 @@ h1 { font-size: 1.5rem !important; margin-bottom: 0 !important; }
 """, unsafe_allow_html=True)
 
 # ── Client BQ ───────────────────────────────────────────────────────────────
-client = bigquery.Client(project=PROJECT)
+if "gcp_service_account" in st.secrets:
+    credentials = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=["https://www.googleapis.com/auth/bigquery"]
+    )
+    client = bigquery.Client(project=PROJECT, credentials=credentials)
+else:
+    client = bigquery.Client(project=PROJECT)
 
 # ── Données courantes ────────────────────────────────────────────────────────
 df_cur = get_current(client)
