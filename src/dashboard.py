@@ -184,13 +184,14 @@ h1 { font-size: 1.5rem !important; margin-bottom: 0 !important; }
 """, unsafe_allow_html=True)
 
 # ── Client BQ ───────────────────────────────────────────────────────────────
-if "gcp_service_account" in st.secrets:
+try:
+    creds_info = dict(st.secrets["gcp_service_account"])
     credentials = service_account.Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
+        creds_info,
         scopes=["https://www.googleapis.com/auth/bigquery"]
     )
     client = bigquery.Client(project=PROJECT, credentials=credentials)
-else:
+except (KeyError, FileNotFoundError):
     client = bigquery.Client(project=PROJECT)
 
 # ── Données courantes ────────────────────────────────────────────────────────
