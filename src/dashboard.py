@@ -204,10 +204,24 @@ cur = {row["notation_polluant"]: {"valeur": row["valeur"], "iqa_sub": row["iqa_s
 iqa_val = max((r["iqa_sub"] for r in cur.values() if r["iqa_sub"] is not None), default=0)
 iqa_cat, iqa_color = iqa_category(iqa_val)
 
+# Dernière timestamp disponible dans la base
+@st.cache_data(ttl=1800)
+def get_last_update(_client):
+    query = f"""
+        SELECT MAX(date_heure_tu) AS derniere
+        FROM `{PROJECT}.{DATASET}.measures_hourly`
+        WHERE validite = TRUE
+    """
+    df = _client.query(query).to_dataframe()
+    return df["derniere"].iloc[0]
+
+last_update = get_last_update(client)
+last_update_str = pd.Timestamp(last_update).strftime("%d/%m/%Y à %Hh%M") if last_update is not None else "inconnue"
+
 # ── Header ───────────────────────────────────────────────────────────────────
 now = datetime.now(timezone.utc).astimezone()
 st.markdown(f"## 📍 Tableau de Bord - Qualité de l'Air")
-st.caption(f"Nantes, France — {now.strftime('%A %d %B %Y, %H:%M')}")
+st.caption(f"Nantes, France — Dernières données disponibles : **{last_update_str} UTC** • Collecte : {now.strftime('%d/%m/%Y %H:%M')}")
 st.markdown("---")
 
 # ── Ligne 1 : IQA + OMS + Recommandations ───────────────────────────────────
@@ -317,4 +331,4 @@ if not df_hist.empty:
 else:
     st.info("Pas de données pour cette période.")
 
-st.caption("Données mises à jour toutes les heures • Source : Réseau de surveillance de la qualité de l'air")
+st.caption(f"Dernières données disponibles : {last_update_str} UTC • Source publiée avec délai par airpl.org • Collecte automatique toutes les heures")
