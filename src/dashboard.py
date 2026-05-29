@@ -287,13 +287,15 @@ for i, (notation, label) in enumerate(POLLUTANT_LABELS.items()):
 
 # ── Historique des concentrations ─────────────────────────────────────────────
 st.markdown("### Historique des Concentrations")
-col_btn1, col_btn2, col_btn3, _ = st.columns([1, 1, 1, 6])
-with col_btn1: btn_h = st.button("🕐 Heure")
-with col_btn2: btn_j = st.button("📅 Jour",  type="primary")
-with col_btn3: btn_m = st.button("📈 Mois")
-
 if "granularity" not in st.session_state:
     st.session_state.granularity = "jour"
+
+col_btn1, col_btn2, col_btn3, _ = st.columns([1, 1, 1, 6])
+gran = st.session_state.granularity
+with col_btn1: btn_h = st.button("🕐 Heure", type="primary" if gran == "heure" else "secondary")
+with col_btn2: btn_j = st.button("📅 Jour",  type="primary" if gran == "jour"  else "secondary")
+with col_btn3: btn_m = st.button("📈 Mois",  type="primary" if gran == "mois"  else "secondary")
+
 if btn_h: st.session_state.granularity = "heure"
 if btn_j: st.session_state.granularity = "jour"
 if btn_m: st.session_state.granularity = "mois"
