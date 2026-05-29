@@ -67,9 +67,9 @@ def _insert(table_key: str, rows: Iterable[dict]) -> int:
 @functions_framework.http
 def ingest_hourly(request):
     now = datetime.now(timezone.utc)
-    # Fenêtre glissante : 2 dernières heures pour absorber les retards de publication
-    date_end = now.date()
+    # date_end = J+1 pour que le range couvre toute la journée courante
     date_start = (now - timedelta(hours=2)).date()
+    date_end = (now + timedelta(days=1)).date()
     rows = fetch_all_pollutants("hourly", date_start, date_end)
     count = _insert("hourly", rows)
     msg = f"hourly: {count} lignes insérées ({date_start} → {date_end})"
