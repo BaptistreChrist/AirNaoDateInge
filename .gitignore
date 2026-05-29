@@ -1,4 +1,6 @@
 *.json
+.streamlit/secrets.toml
+streamlit_secrets.toml
 *.key
 __pycache__/
 *.pyc
