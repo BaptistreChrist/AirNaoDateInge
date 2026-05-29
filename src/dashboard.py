@@ -78,19 +78,20 @@ def get_current(_client):
 @st.cache_data(ttl=1800)
 def get_historical_hourly(_client):
     query = f"""
-        WITH dernier_jour AS (
-            SELECT MAX(DATE(date_heure_tu)) AS max_date
+        WITH derniere_ts AS (
+            SELECT MAX(date_heure_tu) AS max_ts
             FROM `{PROJECT}.{DATASET}.measures_hourly`
             WHERE validite = TRUE
         )
-        SELECT FORMAT_TIMESTAMP('%Hh', date_heure_tu) AS periode,
+        SELECT FORMAT_TIMESTAMP('%d/%m %Hh', date_heure_tu) AS periode,
+               date_heure_tu,
                notation_polluant,
                AVG(valeur) AS valeur
         FROM `{PROJECT}.{DATASET}.measures_hourly`
-        WHERE DATE(date_heure_tu) = (SELECT max_date FROM dernier_jour)
+        WHERE date_heure_tu >= TIMESTAMP_SUB((SELECT max_ts FROM derniere_ts), INTERVAL 24 HOUR)
           AND validite = TRUE
-        GROUP BY periode, notation_polluant
-        ORDER BY periode
+        GROUP BY periode, date_heure_tu, notation_polluant
+        ORDER BY date_heure_tu
     """
     return _client.query(query).to_dataframe()
 
