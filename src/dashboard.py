@@ -184,15 +184,16 @@ h1 { font-size: 1.5rem !important; margin-bottom: 0 !important; }
 """, unsafe_allow_html=True)
 
 # ── Client BQ ───────────────────────────────────────────────────────────────
-try:
-    creds_info = dict(st.secrets["gcp_service_account"])
-    credentials = service_account.Credentials.from_service_account_info(
-        creds_info,
-        scopes=["https://www.googleapis.com/auth/bigquery"]
-    )
-    client = bigquery.Client(project=PROJECT, credentials=credentials)
-except (KeyError, FileNotFoundError):
-    client = bigquery.Client(project=PROJECT)
+if "gcp_service_account" not in st.secrets:
+    st.error("Secret GCP manquant. Ajoute [gcp_service_account] dans Streamlit Cloud → Settings → Secrets.")
+    st.write("Secrets disponibles :", list(st.secrets.keys()))
+    st.stop()
+
+credentials = service_account.Credentials.from_service_account_info(
+    dict(st.secrets["gcp_service_account"]),
+    scopes=["https://www.googleapis.com/auth/bigquery"]
+)
+client = bigquery.Client(project=PROJECT, credentials=credentials)
 
 # ── Données courantes ────────────────────────────────────────────────────────
 df_cur = get_current(client)
