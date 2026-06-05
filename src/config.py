@@ -3,6 +3,8 @@ from datetime import date
 GCP_PROJECT = "airnao-nantes-2026"
 BQ_DATASET = "airquality"
 
+WHO_LIMITS = {"PM25": 15, "PM10": 45, "SO2": 40, "NO2": 25, "O3": 100}
+
 TABLES = {
     "hourly":   "measures_hourly",
     "daily":    "measures_daily",

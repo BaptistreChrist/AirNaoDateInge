@@ -17,6 +17,7 @@ from google.cloud import bigquery
 from config import GCP_PROJECT, BQ_DATASET, TABLES, POLLUTANTS
 from airpl_client import fetch_all_pollutants
 from iqa import _sub_index
+from alerts import run_check
 
 logger = logging.getLogger(__name__)
 bq = bigquery.Client(project=GCP_PROJECT)
@@ -84,6 +85,13 @@ def ingest_daily(request):
     rows = fetch_all_pollutants("daily", yesterday, today)
     count = _insert("daily", rows)
     msg = f"daily: {count} lignes insérées ({yesterday})"
+    logger.info(msg)
+    return msg, 200
+
+
+@functions_framework.http
+def check_alerts(request):
+    msg = run_check(bq)
     logger.info(msg)
     return msg, 200
 

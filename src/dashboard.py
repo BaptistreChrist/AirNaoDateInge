@@ -4,13 +4,12 @@ import plotly.graph_objects as go
 from google.cloud import bigquery
 from google.oauth2 import service_account
 from datetime import datetime, timezone
+from config import WHO_LIMITS
 
 st.set_page_config(page_title="AirNaoned - Qualité de l'Air", layout="wide")
 
 PROJECT = "airnao-nantes-2026"
 DATASET = "airquality"
-
-WHO_LIMITS = {"PM25": 15, "PM10": 45, "SO2": 40, "NO2": 25, "O3": 100}
 
 POLLUTANT_COLORS = {
     "PM25": "#E74C3C",
@@ -42,6 +41,52 @@ HEALTH_RECO = {
     "Très mauvais": "Évitez toute activité physique à l'extérieur. Restez en intérieur avec les fenêtres fermées.",
     "Dangereux": "Urgence sanitaire. Restez en intérieur.",
 }
+
+POLLUTANT_SPECIFIC_RECO = {
+    "PM25": "Évitez les zones à fort trafic ; portez un masque FFP2 si vous devez sortir.",
+    "PM10": "Limitez votre exposition aux environnements poussiéreux et aux activités physiques en extérieur.",
+    "NO2":  "Évitez les axes routiers très fréquentés, notamment aux heures de pointe.",
+    "O3":   "Évitez les efforts physiques intenses entre 12h et 19h, heure de pic d'ozone.",
+    "SO2":  "Les personnes asthmatiques doivent avoir leur traitement d'urgence à portée de main.",
+}
+
+
+def _situation_text(cur: dict, iqa_cat: str) -> str:
+    over, ok_count = [], 0
+    for n, r in cur.items():
+        if r["valeur"] is not None and n in WHO_LIMITS:
+            if r["valeur"] > WHO_LIMITS[n]:
+                pct = (r["valeur"] - WHO_LIMITS[n]) / WHO_LIMITS[n] * 100
+                over.append((n, pct))
+            else:
+                ok_count += 1
+
+    if not over:
+        if iqa_cat == "Bon":
+            return "Tous les polluants sont dans les limites recommandées par l'OMS. La qualité de l'air est excellente."
+        return "Les polluants restent dans les limites OMS, bien que la qualité de l'air soit modérée."
+
+    if ok_count == 0:
+        noms = ", ".join(POLLUTANT_LABELS[n] for n, _ in over)
+        return f"L'ensemble des polluants surveillés ({noms}) dépassent les recommandations de l'OMS. Situation de pollution généralisée."
+
+    parts = []
+    for i, (n, pct) in enumerate(over):
+        label, limit = POLLUTANT_LABELS[n], WHO_LIMITS[n]
+        if i == 0:
+            qualifier = "légèrement" if pct < 20 else ("significativement" if pct < 50 else "très fortement")
+            parts.append(f"Les niveaux de {label} dépassent {qualifier} la recommandation OMS ({limit} µg/m³).")
+        else:
+            parts.append(f"Les niveaux de {label} sont également au-dessus du seuil recommandé.")
+    parts.append("Les autres polluants restent dans les limites acceptables.")
+    return " ".join(parts)
+
+
+def _health_reco_text(iqa_cat: str, cur: dict) -> str:
+    base = HEALTH_RECO.get(iqa_cat, "")
+    elevated = [n for n, r in cur.items() if r["valeur"] is not None and n in WHO_LIMITS and r["valeur"] > WHO_LIMITS[n]]
+    specific = [POLLUTANT_SPECIFIC_RECO[n] for n in elevated if n in POLLUTANT_SPECIFIC_RECO]
+    return (base + " " + " ".join(specific)).strip() if specific else base
 
 
 def iqa_category(iqa: float) -> tuple[str, str]:
@@ -230,7 +275,30 @@ st.markdown(f"## 📍 Tableau de Bord - Qualité de l'Air")
 st.caption(f"Nantes, France — Dernières données disponibles : **{last_update_str} UTC** • Collecte : {now.strftime('%d/%m/%Y %H:%M')}")
 st.markdown("---")
 
-# ── Ligne 1 : IQA + OMS + Recommandations ───────────────────────────────────
+# ── Bandeau d'alerte (IQA > 100) ─────────────────────────────────────────────
+if iqa_val > 100:
+    if iqa_val > 150:
+        alert_color, alert_icon, alert_title = "#E74C3C", "🚨", "ALERTE — Qualité de l'air mauvaise"
+    else:
+        alert_color, alert_icon, alert_title = "#E67E22", "⚠️", "ATTENTION — Qualité de l'air mauvaise pour les groupes sensibles"
+    exceeded = [
+        f"{POLLUTANT_LABELS[n]} ({cur[n]['valeur']:.1f} µg/m³, limite {WHO_LIMITS[n]})"
+        for n in POLLUTANT_LABELS
+        if cur.get(n) and cur[n]["valeur"] and cur[n]["valeur"] > WHO_LIMITS[n]
+    ]
+    detail = f"Polluants en dépassement : {', '.join(exceeded)}" if exceeded else f"IQA global : {iqa_val:.0f} ({iqa_cat})"
+    st.markdown(f"""
+    <div style="background:{alert_color}18; border:1.5px solid {alert_color}; border-radius:10px;
+                padding:12px 20px; margin-bottom:16px; display:flex; align-items:center; gap:12px;">
+        <span style="font-size:1.4rem;">{alert_icon}</span>
+        <div>
+            <b style="color:{alert_color}; font-size:.95rem;">{alert_title}</b><br>
+            <span style="color:#555; font-size:.85rem;">{detail}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ── Ligne 1 : IQA + OMS + Recommandations ────────────────────────────────────
 col1, col2, col3 = st.columns([1, 1.5, 1.5])
 
 with col1:
@@ -244,12 +312,7 @@ with col1:
     """, unsafe_allow_html=True)
 
 with col2:
-    depassements = [
-        f"Les niveaux de **{POLLUTANT_LABELS[n]}** dépassent la recommandation OMS ({WHO_LIMITS[n]} µg/m³)."
-        for n, r in cur.items()
-        if r["valeur"] is not None and WHO_LIMITS.get(n) and r["valeur"] > WHO_LIMITS[n]
-    ]
-    situation = " ".join(depassements) if depassements else "Tous les polluants sont dans les limites recommandées par l'OMS."
+    situation = _situation_text(cur, iqa_cat)
     st.markdown(f"""
     <div class="card" style="border-left: 4px solid #E67E22;">
         <div class="section-title">ℹ️ Situation par rapport à l'OMS</div>
@@ -258,7 +321,7 @@ with col2:
     """, unsafe_allow_html=True)
 
 with col3:
-    reco = HEALTH_RECO.get(iqa_cat, "")
+    reco = _health_reco_text(iqa_cat, cur)
     st.markdown(f"""
     <div class="card" style="border-left: 4px solid #F39C12;">
         <div class="section-title">⚠️ Recommandations de santé</div>
