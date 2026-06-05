@@ -275,7 +275,7 @@ def get_last_update(_client):
     query = f"""
         SELECT MAX(date_heure_tu) AS derniere
         FROM `{PROJECT}.{DATASET}.measures_hourly`
-        WHERE validite = TRUE
+        WHERE validite IS NOT FALSE AND valeur IS NOT NULL
     """
     df = _client.query(query).to_dataframe()
     return df["derniere"].iloc[0]
