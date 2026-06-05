@@ -6,14 +6,12 @@ Cooldown : 1 email max par niveau toutes les 4 heures pour éviter le spam.
 import json
 import logging
 import os
-import smtplib
 import uuid
 from datetime import datetime, timezone
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 import pandas as pd
 from google.cloud import bigquery
+from mailjet_rest import Client as MailjetClient
 
 from config import BQ_DATASET, GCP_PROJECT, WHO_LIMITS
 
@@ -128,21 +126,22 @@ def store_alert(bq_client: bigquery.Client, level: str, iqa_val: float, exceedan
 
 
 def send_alert_email(level: str, iqa_val: float, exceedances: list) -> bool:
-    """Envoie un email d'alerte via Gmail SMTP. Retourne True si succès."""
-    gmail_from     = os.environ.get("GMAIL_FROM")
-    gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
-    recipient      = os.environ.get("ALERT_EMAIL_TO")
+    """Envoie un email d'alerte via Mailjet. Retourne True si succès."""
+    api_key    = os.environ.get("MJ_APIKEY_PUBLIC")
+    api_secret = os.environ.get("MJ_APIKEY_PRIVATE")
+    from_email = os.environ.get("MJ_FROM_EMAIL")
+    recipient  = os.environ.get("ALERT_EMAIL_TO")
 
-    if not all([gmail_from, gmail_password, recipient]):
-        logger.warning("Variables email manquantes (GMAIL_FROM, GMAIL_APP_PASSWORD, ALERT_EMAIL_TO) — email non envoyé.")
+    if not all([api_key, api_secret, from_email, recipient]):
+        logger.warning("Variables Mailjet manquantes (MJ_APIKEY_PUBLIC, MJ_APIKEY_PRIVATE, MJ_FROM_EMAIL, ALERT_EMAIL_TO) — email non envoyé.")
         return False
 
-    iqa_cat  = _iqa_cat(iqa_val)
-    is_crit  = level == "critical"
-    icon     = "🚨" if is_crit else "⚠️"
-    titre    = "ALERTE CRITIQUE" if is_crit else "Alerte"
-    color    = "#E74C3C" if is_crit else "#E67E22"
-    subject  = f"[AirNaoned] {icon} {titre} — IQA {iqa_val:.0f} ({iqa_cat}) à Nantes"
+    iqa_cat = _iqa_cat(iqa_val)
+    is_crit = level == "critical"
+    icon    = "🚨" if is_crit else "⚠️"
+    titre   = "ALERTE CRITIQUE" if is_crit else "Alerte"
+    color   = "#E74C3C" if is_crit else "#E67E22"
+    subject = f"[AirNaoned] {icon} {titre} — IQA {iqa_val:.0f} ({iqa_cat}) à Nantes"
 
     rows_html = "".join(
         f"<tr><td style='padding:4px 8px;'><b>{POLLUTANT_LABELS.get(n, n)}</b></td>"
@@ -155,14 +154,14 @@ def send_alert_email(level: str, iqa_val: float, exceedances: list) -> bool:
     <table style='border-collapse:collapse; margin:12px 0;'>
         <thead><tr style='background:#f5f5f5;'>
             <th style='padding:4px 8px; text-align:left;'>Polluant</th>
-            <th style='padding:4px 8px; text-align:left;'>Valeur</th>
+            <th style='padding:4px 8px; text-align:left;'>Valeur mesurée</th>
             <th style='padding:4px 8px; text-align:left;'>Limite OMS</th>
             <th style='padding:4px 8px; text-align:left;'>Écart</th>
         </tr></thead>
         <tbody>{rows_html}</tbody>
-    </table>""" if exceedances else "<p>Aucun dépassement OMS, mais l'IQA global dépasse 100.</p>"
+    </table>""" if exceedances else "<p>Aucun dépassement OMS individuel, mais l'IQA global dépasse 100.</p>"
 
-    body = f"""
+    html_body = f"""
     <html><body style='font-family:Arial,sans-serif; color:#333; max-width:600px;'>
         <h2 style='color:{color}; border-bottom:2px solid {color}; padding-bottom:8px;'>
             {icon} {titre} — Qualité de l'Air à Nantes
@@ -177,20 +176,24 @@ def send_alert_email(level: str, iqa_val: float, exceedances: list) -> bool:
     </body></html>
     """
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = gmail_from
-    msg["To"]      = recipient
-    msg.attach(MIMEText(body, "html"))
-
+    mj = MailjetClient(auth=(api_key, api_secret), version="v3.1")
+    data = {
+        "Messages": [{
+            "From":     {"Email": from_email, "Name": "AirNaoned Alertes"},
+            "To":       [{"Email": recipient}],
+            "Subject":  subject,
+            "HTMLPart": html_body,
+        }]
+    }
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-            smtp.login(gmail_from, gmail_password)
-            smtp.sendmail(gmail_from, recipient, msg.as_string())
-        logger.info("Email d'alerte envoyé à %s (level=%s, IQA=%.0f)", recipient, level, iqa_val)
-        return True
+        result = mj.send.create(data=data)
+        if result.status_code == 200:
+            logger.info("Email Mailjet envoyé à %s (level=%s, IQA=%.0f)", recipient, level, iqa_val)
+            return True
+        logger.error("Mailjet status %s : %s", result.status_code, result.json())
+        return False
     except Exception as exc:
-        logger.error("Erreur envoi email : %s", exc)
+        logger.error("Erreur envoi Mailjet : %s", exc)
         return False
 
 

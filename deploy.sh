@@ -74,8 +74,8 @@ gcloud functions deploy check_alerts \
   --no-allow-unauthenticated \
   --memory=256Mi \
   --timeout=120s \
-  --set-env-vars=GCP_PROJECT=$PROJECT,GMAIL_FROM=REMPLACER_PAR_VOTRE_EMAIL,ALERT_EMAIL_TO=REMPLACER_PAR_EMAIL_DESTINATAIRE
-  # Ajouter GMAIL_APP_PASSWORD via Secret Manager ou --set-env-vars (ne pas mettre en clair dans ce script)
+  --set-env-vars=GCP_PROJECT=$PROJECT,MJ_FROM_EMAIL=REMPLACER_PAR_EMAIL_VERIFIE_MAILJET,ALERT_EMAIL_TO=REMPLACER_PAR_EMAIL_DESTINATAIRE
+  # Ajouter MJ_APIKEY_PUBLIC et MJ_APIKEY_PRIVATE via Secret Manager ou --set-env-vars
 
 # Récupération des URLs des fonctions
 HOURLY_URL=$(gcloud functions describe ingest_hourly  --region=$REGION --gen2 --format='value(serviceConfig.uri)')
