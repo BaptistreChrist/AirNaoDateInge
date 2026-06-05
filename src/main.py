@@ -80,7 +80,8 @@ def ingest_hourly(request):
 @functions_framework.http
 def ingest_daily(request):
     yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date()
-    rows = fetch_all_pollutants("daily", yesterday, yesterday)
+    today = datetime.now(timezone.utc).date()  # J+1 pour couvrir tout le jour J
+    rows = fetch_all_pollutants("daily", yesterday, today)
     count = _insert("daily", rows)
     msg = f"daily: {count} lignes insérées ({yesterday})"
     logger.info(msg)
