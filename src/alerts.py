@@ -47,7 +47,7 @@ def get_current_data(bq_client: bigquery.Client) -> dict:
         WITH derniere_par_polluant AS (
             SELECT notation_polluant, MAX(date_heure_tu) AS max_ts
             FROM `{GCP_PROJECT}.{BQ_DATASET}.measures_hourly`
-            WHERE validite = TRUE AND valeur IS NOT NULL
+            WHERE validite IS NOT FALSE AND valeur IS NOT NULL
             GROUP BY notation_polluant
         )
         SELECT m.notation_polluant,

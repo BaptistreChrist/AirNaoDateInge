@@ -98,13 +98,15 @@ def iqa_category(iqa: float) -> tuple[str, str]:
 
 @st.cache_data(ttl=1800)
 def get_current(_client):
-    # Prend la dernière valeur disponible pour chaque polluant indépendamment
+    # Prend la dernière valeur disponible pour chaque polluant indépendamment.
+    # validite IS NOT FALSE : accepte TRUE (validé) et NULL (provisoire récent),
+    # rejette seulement FALSE (mesure explicitement invalide par Atmo).
     query = f"""
         WITH derniere_par_polluant AS (
             SELECT notation_polluant,
                    MAX(date_heure_tu) AS max_ts
             FROM `{PROJECT}.{DATASET}.measures_hourly`
-            WHERE validite = TRUE AND valeur IS NOT NULL
+            WHERE validite IS NOT FALSE AND valeur IS NOT NULL
             GROUP BY notation_polluant
         )
         SELECT m.notation_polluant,
@@ -114,7 +116,7 @@ def get_current(_client):
         JOIN derniere_par_polluant d
           ON m.notation_polluant = d.notation_polluant
          AND m.date_heure_tu >= TIMESTAMP_SUB(d.max_ts, INTERVAL 2 HOUR)
-        WHERE m.validite = TRUE AND m.valeur IS NOT NULL
+        WHERE m.validite IS NOT FALSE AND m.valeur IS NOT NULL
         GROUP BY m.notation_polluant
     """
     return _client.query(query).to_dataframe()
@@ -126,7 +128,7 @@ def get_historical_hourly(_client):
         WITH derniere_ts AS (
             SELECT MAX(date_heure_tu) AS max_ts
             FROM `{PROJECT}.{DATASET}.measures_hourly`
-            WHERE validite = TRUE
+            WHERE validite IS NOT FALSE
         )
         SELECT FORMAT_TIMESTAMP('%d/%m %Hh', date_heure_tu) AS periode,
                date_heure_tu,
@@ -134,7 +136,7 @@ def get_historical_hourly(_client):
                AVG(valeur) AS valeur
         FROM `{PROJECT}.{DATASET}.measures_hourly`
         WHERE date_heure_tu >= TIMESTAMP_SUB((SELECT max_ts FROM derniere_ts), INTERVAL 24 HOUR)
-          AND validite = TRUE
+          AND validite IS NOT FALSE
         GROUP BY periode, date_heure_tu, notation_polluant
         ORDER BY date_heure_tu
     """
@@ -150,7 +152,7 @@ def get_historical_daily(_client):
                AVG(valeur) AS valeur
         FROM `{PROJECT}.{DATASET}.measures_daily`
         WHERE date_heure_tu >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
-          AND validite = TRUE
+          AND validite IS NOT FALSE
         GROUP BY periode, jour, notation_polluant
         ORDER BY jour
     """
@@ -165,7 +167,7 @@ def get_historical_monthly(_client):
                AVG(valeur) AS valeur
         FROM `{PROJECT}.{DATASET}.measures_monthly`
         WHERE date_heure_tu >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
-          AND validite = TRUE
+          AND validite IS NOT FALSE
         GROUP BY periode, notation_polluant
         ORDER BY MIN(date_heure_tu)
     """
