@@ -91,7 +91,8 @@ def ingest_daily(request):
 
 @functions_framework.http
 def check_alerts(request):
-    msg = run_check(bq)
+    test_mode = request.args.get("test", "").lower() in ("1", "true")
+    msg = run_check(bq, test=test_mode)
     logger.info(msg)
     return msg, 200
 

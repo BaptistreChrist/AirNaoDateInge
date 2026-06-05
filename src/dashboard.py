@@ -252,6 +252,17 @@ cur = {
 }
 
 # IQA global = max des sous-indices
+# ?test_alert=warning ou ?test_alert=critical dans l'URL pour tester visuellement
+_test = st.query_params.get("test_alert", "")
+if _test == "warning":
+    cur = {"PM25": {"valeur": 22.0, "iqa_sub": 118.0}, "NO2": {"valeur": 31.0, "iqa_sub": 65.0},
+           "PM10": {"valeur": 20.0, "iqa_sub": 18.0}, "SO2": {"valeur": 1.0, "iqa_sub": 1.0},
+           "O3":   {"valeur": 55.0, "iqa_sub": 26.0}}
+elif _test == "critical":
+    cur = {"PM25": {"valeur": 80.0, "iqa_sub": 165.0}, "NO2": {"valeur": 200.0, "iqa_sub": 160.0},
+           "PM10": {"valeur": 200.0, "iqa_sub": 155.0}, "SO2": {"valeur": 10.0, "iqa_sub": 5.0},
+           "O3":   {"valeur": 150.0, "iqa_sub": 125.0}}
+
 iqa_val = max((r["iqa_sub"] for r in cur.values() if r["iqa_sub"] is not None), default=0)
 iqa_cat, iqa_color = iqa_category(iqa_val)
 

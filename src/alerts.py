@@ -197,8 +197,18 @@ def send_alert_email(level: str, iqa_val: float, exceedances: list) -> bool:
         return False
 
 
-def run_check(bq_client: bigquery.Client) -> str:
-    """Point d'entrée principal : vérifie les seuils, envoie l'email si nécessaire."""
+def run_check(bq_client: bigquery.Client, test: bool = False) -> str:
+    """Point d'entrée principal : vérifie les seuils, envoie l'email si nécessaire.
+    Si test=True, simule un scénario de dépassement sans lire la BQ ni respecter le cooldown.
+    """
+    if test:
+        level    = "warning"
+        iqa_val  = 118.0
+        exceedances = [("PM25", 22.0, 15), ("NO2", 31.0, 25)]
+        logger.info("check_alerts : MODE TEST — scénario simulé (IQA=%.0f)", iqa_val)
+        email_sent = send_alert_email(level, iqa_val, exceedances)
+        return f"[TEST] alerte {level} simulée (IQA={iqa_val:.0f}, email={'oui' if email_sent else 'non'})."
+
     cur = get_current_data(bq_client)
     if not cur:
         return "Pas de données disponibles."
