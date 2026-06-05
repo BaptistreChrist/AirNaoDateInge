@@ -10,8 +10,8 @@ import uuid
 from datetime import datetime, timezone
 
 import pandas as pd
+import requests
 from google.cloud import bigquery
-from mailjet_rest import Client as MailjetClient
 
 from config import BQ_DATASET, GCP_PROJECT, WHO_LIMITS
 
@@ -126,14 +126,13 @@ def store_alert(bq_client: bigquery.Client, level: str, iqa_val: float, exceedan
 
 
 def send_alert_email(level: str, iqa_val: float, exceedances: list) -> bool:
-    """Envoie un email d'alerte via Mailjet. Retourne True si succès."""
-    api_key    = os.environ.get("MJ_APIKEY_PUBLIC")
-    api_secret = os.environ.get("MJ_APIKEY_PRIVATE")
-    from_email = os.environ.get("MJ_FROM_EMAIL")
+    """Envoie un email d'alerte via Brevo. Retourne True si succès."""
+    api_key   = os.environ.get("BREVO_API_KEY")
+    from_email = os.environ.get("BREVO_FROM_EMAIL")
     recipient  = os.environ.get("ALERT_EMAIL_TO")
 
-    if not all([api_key, api_secret, from_email, recipient]):
-        logger.warning("Variables Mailjet manquantes (MJ_APIKEY_PUBLIC, MJ_APIKEY_PRIVATE, MJ_FROM_EMAIL, ALERT_EMAIL_TO) — email non envoyé.")
+    if not all([api_key, from_email, recipient]):
+        logger.warning("Variables Brevo manquantes (BREVO_API_KEY, BREVO_FROM_EMAIL, ALERT_EMAIL_TO) — email non envoyé.")
         return False
 
     iqa_cat = _iqa_cat(iqa_val)
@@ -176,24 +175,25 @@ def send_alert_email(level: str, iqa_val: float, exceedances: list) -> bool:
     </body></html>
     """
 
-    mj = MailjetClient(auth=(api_key, api_secret), version="v3.1")
-    data = {
-        "Messages": [{
-            "From":     {"Email": from_email, "Name": "AirNaoned Alertes"},
-            "To":       [{"Email": recipient}],
-            "Subject":  subject,
-            "HTMLPart": html_body,
-        }]
-    }
     try:
-        result = mj.send.create(data=data)
-        if result.status_code == 200:
-            logger.info("Email Mailjet envoyé à %s (level=%s, IQA=%.0f)", recipient, level, iqa_val)
+        resp = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={"api-key": api_key, "Content-Type": "application/json"},
+            json={
+                "sender":      {"name": "AirNaoned Alertes", "email": from_email},
+                "to":          [{"email": recipient}],
+                "subject":     subject,
+                "htmlContent": html_body,
+            },
+            timeout=10,
+        )
+        if resp.status_code == 201:
+            logger.info("Email Brevo envoyé à %s (level=%s, IQA=%.0f)", recipient, level, iqa_val)
             return True
-        logger.error("Mailjet status %s : %s", result.status_code, result.json())
+        logger.error("Brevo status %s : %s", resp.status_code, resp.text)
         return False
     except Exception as exc:
-        logger.error("Erreur envoi Mailjet : %s", exc)
+        logger.error("Erreur envoi Brevo : %s", exc)
         return False
 
 
