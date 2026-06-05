@@ -198,7 +198,13 @@ client = bigquery.Client(project=PROJECT, credentials=credentials)
 
 # ── Données courantes ────────────────────────────────────────────────────────
 df_cur = get_current(client)
-cur = {row["notation_polluant"]: {"valeur": row["valeur"], "iqa_sub": row["iqa_sub"]} for _, row in df_cur.iterrows()}
+cur = {
+    row["notation_polluant"]: {
+        "valeur":  row["valeur"]  if pd.notna(row["valeur"])  else None,
+        "iqa_sub": row["iqa_sub"] if pd.notna(row["iqa_sub"]) else None,
+    }
+    for _, row in df_cur.iterrows()
+}
 
 # IQA global = max des sous-indices
 iqa_val = max((r["iqa_sub"] for r in cur.values() if r["iqa_sub"] is not None), default=0)
