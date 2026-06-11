@@ -17,7 +17,8 @@ from config import BQ_DATASET, GCP_PROJECT, WHO_LIMITS
 
 logger = logging.getLogger(__name__)
 
-ALERT_TABLE = f"{GCP_PROJECT}.{BQ_DATASET}.alerts"
+ALERT_TABLE       = f"{GCP_PROJECT}.{BQ_DATASET}.alerts"
+SUBSCRIBERS_TABLE = f"{GCP_PROJECT}.{BQ_DATASET}.subscribers"
 COOLDOWN_HOURS = 4
 
 POLLUTANT_LABELS = {
@@ -108,6 +109,39 @@ def already_alerted(bq_client: bigquery.Client, level: str) -> bool:
         return False
 
 
+def get_subscribers(bq_client: bigquery.Client) -> list[str]:
+    """Retourne la liste des emails actifs inscrits aux alertes."""
+    query = f"SELECT email FROM `{SUBSCRIBERS_TABLE}` WHERE active = TRUE"
+    try:
+        df = bq_client.query(query).to_dataframe()
+        return df["email"].tolist()
+    except Exception as exc:
+        logger.warning("Impossible de récupérer les abonnés : %s", exc)
+        return []
+
+
+def subscribe(bq_client: bigquery.Client, email: str) -> str:
+    """Inscrit un email. Retourne 'ok', 'already' ou 'error'."""
+    check_q = f"SELECT COUNT(*) AS n FROM `{SUBSCRIBERS_TABLE}` WHERE email = @email AND active = TRUE"
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[bigquery.ScalarQueryParameter("email", "STRING", email)]
+    )
+    try:
+        df = bq_client.query(check_q, job_config=job_config).to_dataframe()
+        if int(df["n"].iloc[0]) > 0:
+            return "already"
+        row = {
+            "email":         email,
+            "subscribed_at": datetime.now(timezone.utc).isoformat(),
+            "active":        True,
+        }
+        errors = bq_client.insert_rows_json(SUBSCRIBERS_TABLE, [row])
+        return "error" if errors else "ok"
+    except Exception as exc:
+        logger.error("Erreur inscription %s : %s", email, exc)
+        return "error"
+
+
 def store_alert(bq_client: bigquery.Client, level: str, iqa_val: float, exceedances: list, email_sent: bool) -> None:
     row = {
         "alert_id":        str(uuid.uuid4()),
@@ -125,21 +159,31 @@ def store_alert(bq_client: bigquery.Client, level: str, iqa_val: float, exceedan
         logger.error("Erreur stockage alerte BQ : %s", errors)
 
 
-def send_alert_email(level: str, iqa_val: float, exceedances: list) -> bool:
-    """Envoie un email d'alerte via Brevo. Retourne True si succès."""
-    api_key   = os.environ.get("BREVO_API_KEY")
+def send_alert_email(level: str, iqa_val: float, exceedances: list, recipients: list[str] | None = None) -> bool:
+    """Envoie un email via Brevo aux destinataires indiqués (ou ALERT_EMAIL_TO par défaut). Retourne True si succès."""
+    api_key    = os.environ.get("BREVO_API_KEY")
     from_email = os.environ.get("BREVO_FROM_EMAIL")
-    recipient  = os.environ.get("ALERT_EMAIL_TO")
 
-    if not all([api_key, from_email, recipient]):
-        logger.warning("Variables Brevo manquantes (BREVO_API_KEY, BREVO_FROM_EMAIL, ALERT_EMAIL_TO) — email non envoyé.")
+    if not all([api_key, from_email]):
+        logger.warning("Variables Brevo manquantes (BREVO_API_KEY, BREVO_FROM_EMAIL) — email non envoyé.")
+        return False
+
+    if recipients is None:
+        admin = os.environ.get("ALERT_EMAIL_TO")
+        recipients = [admin] if admin else []
+    if not recipients:
+        logger.warning("Aucun destinataire — email non envoyé.")
         return False
 
     iqa_cat = _iqa_cat(iqa_val)
-    is_crit = level == "critical"
-    icon    = "🚨" if is_crit else "⚠️"
-    titre   = "ALERTE CRITIQUE" if is_crit else "Alerte"
-    color   = "#E74C3C" if is_crit else "#E67E22"
+
+    if level == "ok":
+        icon, titre, color = "✅", "Rapport de qualité de l'air", "#27AE60"
+    elif level == "critical":
+        icon, titre, color = "🚨", "ALERTE CRITIQUE", "#E74C3C"
+    else:
+        icon, titre, color = "⚠️", "Alerte", "#E67E22"
+
     subject = f"[AirNaoned] {icon} {titre} — IQA {iqa_val:.0f} ({iqa_cat}) à Nantes"
 
     rows_html = "".join(
@@ -149,16 +193,21 @@ def send_alert_email(level: str, iqa_val: float, exceedances: list) -> bool:
         f"<td style='padding:4px 8px; color:{color};'>+{(v - l) / l * 100:.0f}%</td></tr>"
         for n, v, l in exceedances
     )
-    table_html = f"""
-    <table style='border-collapse:collapse; margin:12px 0;'>
-        <thead><tr style='background:#f5f5f5;'>
-            <th style='padding:4px 8px; text-align:left;'>Polluant</th>
-            <th style='padding:4px 8px; text-align:left;'>Valeur mesurée</th>
-            <th style='padding:4px 8px; text-align:left;'>Limite OMS</th>
-            <th style='padding:4px 8px; text-align:left;'>Écart</th>
-        </tr></thead>
-        <tbody>{rows_html}</tbody>
-    </table>""" if exceedances else "<p>Aucun dépassement OMS individuel, mais l'IQA global dépasse 100.</p>"
+    if exceedances:
+        table_html = f"""
+        <table style='border-collapse:collapse; margin:12px 0;'>
+            <thead><tr style='background:#f5f5f5;'>
+                <th style='padding:4px 8px; text-align:left;'>Polluant</th>
+                <th style='padding:4px 8px; text-align:left;'>Valeur mesurée</th>
+                <th style='padding:4px 8px; text-align:left;'>Limite OMS</th>
+                <th style='padding:4px 8px; text-align:left;'>Écart</th>
+            </tr></thead>
+            <tbody>{rows_html}</tbody>
+        </table>"""
+    elif level == "ok":
+        table_html = "<p style='color:#27AE60;'>Tous les polluants sont dans les limites OMS. Qualité de l'air satisfaisante.</p>"
+    else:
+        table_html = "<p>Aucun dépassement OMS individuel, mais l'IQA global dépasse 100.</p>"
 
     html_body = f"""
     <html><body style='font-family:Arial,sans-serif; color:#333; max-width:600px;'>
@@ -175,20 +224,21 @@ def send_alert_email(level: str, iqa_val: float, exceedances: list) -> bool:
     </body></html>
     """
 
+    to_list = [{"email": r} for r in recipients]
     try:
         resp = requests.post(
             "https://api.brevo.com/v3/smtp/email",
             headers={"api-key": api_key, "Content-Type": "application/json"},
             json={
                 "sender":      {"name": "AirNaoned Alertes", "email": from_email},
-                "to":          [{"email": recipient}],
+                "to":          to_list,
                 "subject":     subject,
                 "htmlContent": html_body,
             },
             timeout=10,
         )
         if resp.status_code == 201:
-            logger.info("Email Brevo envoyé à %s (level=%s, IQA=%.0f)", recipient, level, iqa_val)
+            logger.info("Email Brevo envoyé à %s (level=%s, IQA=%.0f)", recipients, level, iqa_val)
             return True
         logger.error("Brevo status %s : %s", resp.status_code, resp.text)
         return False
@@ -202,8 +252,8 @@ def run_check(bq_client: bigquery.Client, test: bool = False) -> str:
     Si test=True, simule un scénario de dépassement sans lire la BQ ni respecter le cooldown.
     """
     if test:
-        level    = "warning"
-        iqa_val  = 118.0
+        level       = "warning"
+        iqa_val     = 118.0
         exceedances = [("PM25", 22.0, 15), ("NO2", 31.0, 25)]
         logger.info("check_alerts : MODE TEST — scénario simulé (IQA=%.0f)", iqa_val)
         email_sent = send_alert_email(level, iqa_val, exceedances)
@@ -223,7 +273,13 @@ def run_check(bq_client: bigquery.Client, test: bool = False) -> str:
         logger.info("check_alerts : alerte %s déjà envoyée dans les %dh (cooldown).", level, COOLDOWN_HOURS)
         return f"cooldown: alerte {level} déjà envoyée récemment."
 
-    email_sent = send_alert_email(level, iqa_val, exceedances)
+    recipients = get_subscribers(bq_client)
+    if not recipients:
+        admin = os.environ.get("ALERT_EMAIL_TO")
+        if admin:
+            recipients = [admin]
+
+    email_sent = send_alert_email(level, iqa_val, exceedances, recipients)
     store_alert(bq_client, level, iqa_val, exceedances, email_sent)
 
-    return f"alerte {level} envoyée (IQA={iqa_val:.0f}, email={'oui' if email_sent else 'non'})."
+    return f"alerte {level} envoyée (IQA={iqa_val:.0f}, email={'oui' if email_sent else 'non'}, destinataires={len(recipients)})."

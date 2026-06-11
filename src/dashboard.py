@@ -1,3 +1,5 @@
+import os
+import re
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -5,6 +7,9 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 from datetime import datetime, timezone
 from config import WHO_LIMITS
+from alerts import subscribe, get_subscribers, send_alert_email, get_current_data, check_thresholds
+
+EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 
 st.set_page_config(page_title="AirNaoned - Qualité de l'Air", layout="wide")
 
@@ -238,6 +243,11 @@ credentials = service_account.Credentials.from_service_account_info(
 )
 client = bigquery.Client(project=PROJECT, credentials=credentials)
 
+# Injecter les credentials Brevo depuis st.secrets si présents
+for _k, _env in [("brevo_api_key", "BREVO_API_KEY"), ("brevo_from_email", "BREVO_FROM_EMAIL")]:
+    if _k in st.secrets:
+        os.environ[_env] = st.secrets[_k]
+
 # ── Données courantes ────────────────────────────────────────────────────────
 df_cur = get_current(client)
 cur = {
@@ -407,5 +417,46 @@ if not df_hist.empty:
     st.plotly_chart(concentration_chart(df_hist, x_col), use_container_width=True)
 else:
     st.info("Pas de données pour cette période.")
+
+st.markdown("---")
+st.markdown("### 📧 Alertes par email")
+
+col_sub, col_send = st.columns([2, 1])
+
+with col_sub:
+    st.markdown("**Recevoir une alerte quand la qualité de l'air se dégrade**")
+    with st.form("subscribe_form", clear_on_submit=True):
+        email_input = st.text_input("Votre adresse email", placeholder="vous@exemple.fr")
+        submitted = st.form_submit_button("S'inscrire aux alertes")
+    if submitted:
+        if not email_input or not EMAIL_RE.match(email_input):
+            st.error("Adresse email invalide.")
+        else:
+            result = subscribe(client, email_input)
+            if result == "ok":
+                st.success(f"**{email_input}** est inscrit. Vous recevrez un email lors des prochains dépassements.")
+            elif result == "already":
+                st.info(f"**{email_input}** est déjà inscrit.")
+            else:
+                st.error("Erreur lors de l'inscription, réessayez.")
+
+with col_send:
+    st.markdown("**Démonstration — envoyer un rapport**")
+    st.caption("Envoie le statut actuel à tous les abonnés, même sans dépassement.")
+    if st.button("📤 Envoyer un rapport maintenant", use_container_width=True):
+        subs = get_subscribers(client)
+        if not subs:
+            st.warning("Aucun abonné pour l'instant. Inscrivez-vous d'abord.")
+        else:
+            cur_data = get_current_data(client)
+            if not cur_data:
+                st.error("Impossible de récupérer les données actuelles.")
+            else:
+                level_now, iqa_now, exc_now = check_thresholds(cur_data)
+                sent = send_alert_email(level_now, iqa_now, exc_now, subs)
+                if sent:
+                    st.success(f"Rapport envoyé à {len(subs)} abonné(s).")
+                else:
+                    st.error("Échec de l'envoi (vérifiez les secrets Brevo).")
 
 st.caption(f"Dernières données disponibles : {last_update_str} UTC • Source publiée avec délai par airpl.org • Collecte automatique toutes les heures")

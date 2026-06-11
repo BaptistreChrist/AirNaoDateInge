@@ -66,9 +66,24 @@ def create_alerts_table() -> None:
     print("Table alerts prête.")
 
 
+SCHEMA_SUBSCRIBERS = [
+    bigquery.SchemaField("email",         "STRING",    mode="REQUIRED"),
+    bigquery.SchemaField("subscribed_at", "TIMESTAMP", mode="REQUIRED"),
+    bigquery.SchemaField("active",        "BOOLEAN",   mode="REQUIRED"),
+]
+
+
+def create_subscribers_table() -> None:
+    table_id = f"{GCP_PROJECT}.{BQ_DATASET}.subscribers"
+    table = bigquery.Table(table_id, schema=SCHEMA_SUBSCRIBERS)
+    client.create_table(table, exists_ok=True)
+    print("Table subscribers prête.")
+
+
 if __name__ == "__main__":
     create_dataset()
     for key in TABLES:
         create_table(key)
     create_alerts_table()
+    create_subscribers_table()
     print("Setup BigQuery terminé.")
