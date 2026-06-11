@@ -441,19 +441,24 @@ with col_send:
     st.markdown("**Démonstration — envoyer un rapport**")
     st.caption("Envoie le statut actuel à tous les abonnés, même sans dépassement.")
     if st.button("📤 Envoyer un rapport maintenant", use_container_width=True):
-        subs = get_subscribers(client)
-        if not subs:
-            st.warning("Aucun abonné pour l'instant. Inscrivez-vous d'abord.")
+        if not BREVO_API_KEY:
+            st.error("Secret 'brevo_api_key' introuvable dans Streamlit Cloud → Settings → Secrets.")
+        elif not BREVO_FROM_EMAIL:
+            st.error("Secret 'brevo_from_email' introuvable dans Streamlit Cloud → Settings → Secrets.")
         else:
-            cur_data = get_current_data(client)
-            if not cur_data:
-                st.error("Impossible de récupérer les données actuelles.")
+            subs = get_subscribers(client)
+            if not subs:
+                st.warning("Aucun abonné pour l'instant. Inscrivez-vous d'abord.")
             else:
-                level_now, iqa_now, exc_now = check_thresholds(cur_data)
-                sent = send_alert_email(level_now, iqa_now, exc_now, subs, api_key=BREVO_API_KEY, from_email=BREVO_FROM_EMAIL)
-                if sent:
-                    st.success(f"Rapport envoyé à {len(subs)} abonné(s).")
+                cur_data = get_current_data(client)
+                if not cur_data:
+                    st.error("Impossible de récupérer les données actuelles.")
                 else:
-                    st.error("Échec de l'envoi (vérifiez les secrets Brevo).")
+                    level_now, iqa_now, exc_now = check_thresholds(cur_data)
+                    sent = send_alert_email(level_now, iqa_now, exc_now, subs, api_key=BREVO_API_KEY, from_email=BREVO_FROM_EMAIL)
+                    if sent:
+                        st.success(f"Rapport envoyé à {len(subs)} abonné(s).")
+                    else:
+                        st.error("Échec de l'envoi — vérifie les logs Streamlit pour le détail.")
 
 st.caption(f"Dernières données disponibles : {last_update_str} UTC • Source publiée avec délai par airpl.org • Collecte automatique toutes les heures")
