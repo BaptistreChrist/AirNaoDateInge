@@ -432,13 +432,13 @@ with col_sub:
         if not email_input or not EMAIL_RE.match(email_input):
             st.error("Adresse email invalide.")
         else:
-            result = subscribe(client, email_input)
-            if result == "ok":
+            status, detail = subscribe(client, email_input)
+            if status == "ok":
                 st.success(f"**{email_input}** est inscrit. Vous recevrez un email lors des prochains dépassements.")
-            elif result == "already":
+            elif status == "already":
                 st.info(f"**{email_input}** est déjà inscrit.")
             else:
-                st.error("Erreur lors de l'inscription, réessayez.")
+                st.error(f"Erreur lors de l'inscription : {detail}")
 
 with col_send:
     st.markdown("**Démonstration — envoyer un rapport**")

@@ -109,6 +109,19 @@ def already_alerted(bq_client: bigquery.Client, level: str) -> bool:
         return False
 
 
+_SUBSCRIBERS_SCHEMA = [
+    bigquery.SchemaField("email",         "STRING",    mode="REQUIRED"),
+    bigquery.SchemaField("subscribed_at", "TIMESTAMP", mode="REQUIRED"),
+    bigquery.SchemaField("active",        "BOOLEAN",   mode="REQUIRED"),
+]
+
+
+def _ensure_subscribers_table(bq_client: bigquery.Client) -> None:
+    """Crée la table subscribers si elle n'existe pas encore."""
+    table_ref = bigquery.Table(SUBSCRIBERS_TABLE, schema=_SUBSCRIBERS_SCHEMA)
+    bq_client.create_table(table_ref, exists_ok=True)
+
+
 def get_subscribers(bq_client: bigquery.Client) -> list[str]:
     """Retourne la liste des emails actifs inscrits aux alertes."""
     query = f"SELECT email FROM `{SUBSCRIBERS_TABLE}` WHERE active = TRUE"
@@ -120,26 +133,29 @@ def get_subscribers(bq_client: bigquery.Client) -> list[str]:
         return []
 
 
-def subscribe(bq_client: bigquery.Client, email: str) -> str:
-    """Inscrit un email. Retourne 'ok', 'already' ou 'error'."""
-    check_q = f"SELECT COUNT(*) AS n FROM `{SUBSCRIBERS_TABLE}` WHERE email = @email AND active = TRUE"
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[bigquery.ScalarQueryParameter("email", "STRING", email)]
-    )
+def subscribe(bq_client: bigquery.Client, email: str) -> tuple[str, str]:
+    """Inscrit un email. Retourne ('ok'|'already'|'error', détail)."""
     try:
+        _ensure_subscribers_table(bq_client)
+        check_q = f"SELECT COUNT(*) AS n FROM `{SUBSCRIBERS_TABLE}` WHERE email = @email AND active = TRUE"
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[bigquery.ScalarQueryParameter("email", "STRING", email)]
+        )
         df = bq_client.query(check_q, job_config=job_config).to_dataframe()
         if int(df["n"].iloc[0]) > 0:
-            return "already"
+            return "already", ""
         row = {
             "email":         email,
             "subscribed_at": datetime.now(timezone.utc).isoformat(),
             "active":        True,
         }
         errors = bq_client.insert_rows_json(SUBSCRIBERS_TABLE, [row])
-        return "error" if errors else "ok"
+        if errors:
+            return "error", str(errors)
+        return "ok", ""
     except Exception as exc:
         logger.error("Erreur inscription %s : %s", email, exc)
-        return "error"
+        return "error", str(exc)
 
 
 def store_alert(bq_client: bigquery.Client, level: str, iqa_val: float, exceedances: list, email_sent: bool) -> None:
