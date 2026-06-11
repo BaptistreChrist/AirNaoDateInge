@@ -174,10 +174,17 @@ def store_alert(bq_client: bigquery.Client, level: str, iqa_val: float, exceedan
         logger.error("Erreur stockage alerte BQ : %s", errors)
 
 
-def send_alert_email(level: str, iqa_val: float, exceedances: list, recipients: list[str] | None = None) -> bool:
+def send_alert_email(
+    level: str,
+    iqa_val: float,
+    exceedances: list,
+    recipients: list[str] | None = None,
+    api_key: str | None = None,
+    from_email: str | None = None,
+) -> bool:
     """Envoie un email via Brevo aux destinataires indiqués (ou ALERT_EMAIL_TO par défaut). Retourne True si succès."""
-    api_key    = os.environ.get("BREVO_API_KEY")
-    from_email = os.environ.get("BREVO_FROM_EMAIL")
+    api_key    = api_key    or os.environ.get("BREVO_API_KEY")
+    from_email = from_email or os.environ.get("BREVO_FROM_EMAIL")
 
     if not all([api_key, from_email]):
         logger.warning("Variables Brevo manquantes (BREVO_API_KEY, BREVO_FROM_EMAIL) — email non envoyé.")

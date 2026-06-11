@@ -1,4 +1,3 @@
-import os
 import re
 import streamlit as st
 import pandas as pd
@@ -243,10 +242,8 @@ credentials = service_account.Credentials.from_service_account_info(
 )
 client = bigquery.Client(project=PROJECT, credentials=credentials)
 
-# Injecter les credentials Brevo depuis st.secrets si présents
-for _k, _env in [("brevo_api_key", "BREVO_API_KEY"), ("brevo_from_email", "BREVO_FROM_EMAIL")]:
-    if _k in st.secrets:
-        os.environ[_env] = st.secrets[_k]
+BREVO_API_KEY    = st.secrets.get("brevo_api_key", "")
+BREVO_FROM_EMAIL = st.secrets.get("brevo_from_email", "")
 
 # ── Données courantes ────────────────────────────────────────────────────────
 df_cur = get_current(client)
@@ -453,7 +450,7 @@ with col_send:
                 st.error("Impossible de récupérer les données actuelles.")
             else:
                 level_now, iqa_now, exc_now = check_thresholds(cur_data)
-                sent = send_alert_email(level_now, iqa_now, exc_now, subs)
+                sent = send_alert_email(level_now, iqa_now, exc_now, subs, api_key=BREVO_API_KEY, from_email=BREVO_FROM_EMAIL)
                 if sent:
                     st.success(f"Rapport envoyé à {len(subs)} abonné(s).")
                 else:
