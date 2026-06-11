@@ -136,7 +136,6 @@ def get_subscribers(bq_client: bigquery.Client) -> list[str]:
 def subscribe(bq_client: bigquery.Client, email: str) -> tuple[str, str]:
     """Inscrit un email. Retourne ('ok'|'already'|'error', détail)."""
     try:
-        _ensure_subscribers_table(bq_client)
         check_q = f"SELECT COUNT(*) AS n FROM `{SUBSCRIBERS_TABLE}` WHERE email = @email AND active = TRUE"
         job_config = bigquery.QueryJobConfig(
             query_parameters=[bigquery.ScalarQueryParameter("email", "STRING", email)]
